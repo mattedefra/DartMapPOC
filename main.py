@@ -49,7 +49,7 @@ if "center_lat" not in st.session_state:
 # UI
 # -----------------------------
 st.title("📍 DartMap Prototype")
-
+st.text(f'Cities with data: {(', '.join(map(str, df['city'])))}')
 radius_km = st.slider("Radius (km)", 1, 100, 20)
 
 st.write(f"📍 Center: {st.session_state.center_lat:.4f}, {st.session_state.center_lon:.4f}")
