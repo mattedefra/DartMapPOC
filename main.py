@@ -5,7 +5,7 @@ import folium
 from streamlit_folium import st_folium
 
 # -----------------------------
-# Mock data (Portugal-focused)
+# Mock data
 # -----------------------------
 np.random.seed(42)
 
@@ -21,7 +21,6 @@ def generate_posts(n=30):
     data = []
     for i in range(n):
         city, lat, lon = PLACES[np.random.randint(0, len(PLACES))]
-
         lat += np.random.normal(0, 0.05)
         lon += np.random.normal(0, 0.05)
 
@@ -31,34 +30,32 @@ def generate_posts(n=30):
             "lat": lat,
             "lon": lon,
             "review": f"Experience in {city} #{i}",
-            "rating": np.random.randint(1, 6)
+            "rating": np.random.randint(1, 6),
+            "likes": np.random.randint(0, 500)   # ⭐ NEW
         })
-
     return pd.DataFrame(data)
 
 df = generate_posts()
 
 # -----------------------------
-# Session state (center point)
+# Session state
 # -----------------------------
 if "center_lat" not in st.session_state:
-    st.session_state.center_lat = 38.7223  # Lisbon default
+    st.session_state.center_lat = 38.7223
     st.session_state.center_lon = -9.1393
+    st.session_state.center_set = False
 
 # -----------------------------
 # UI
 # -----------------------------
-st.title("📍 DartMap Prototype (Click to Set Center)")
+st.title("📍 DartMap Prototype")
 
 radius_km = st.slider("Radius (km)", 1, 100, 20)
 
-st.write(
-    f"📍 Current center: "
-    f"{st.session_state.center_lat:.4f}, {st.session_state.center_lon:.4f}"
-)
+st.write(f"📍 Center: {st.session_state.center_lat:.4f}, {st.session_state.center_lon:.4f}")
 
 # -----------------------------
-# Haversine distance
+# Distance function
 # -----------------------------
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371
@@ -70,56 +67,77 @@ def haversine(lat1, lon1, lat2, lon2):
     return 2 * R * np.arcsin(np.sqrt(a))
 
 # -----------------------------
-# MAP (Folium)
+# Compute nearby ONLY after click
+# -----------------------------
+nearby = pd.DataFrame()
+
+if st.session_state.center_set:
+    df["distance"] = df.apply(
+        lambda r: haversine(
+            st.session_state.center_lat,
+            st.session_state.center_lon,
+            r["lat"],
+            r["lon"]
+        ),
+        axis=1
+    )
+
+    nearby = df[df["distance"] <= radius_km]
+
+# -----------------------------
+# MAP
 # -----------------------------
 m = folium.Map(
     location=[st.session_state.center_lat, st.session_state.center_lon],
     zoom_start=7
 )
 
-# center marker
-folium.Marker(
-    [st.session_state.center_lat, st.session_state.center_lon],
-    tooltip="Center",
-    icon=folium.Icon(color="blue")
-).add_to(m)
-
-# posts markers
-for _, row in df.iterrows():
-    folium.CircleMarker(
-        location=[row["lat"], row["lon"]],
-        radius=5,
-        color="red",
-        fill=True,
-        fill_opacity=0.6,
-        popup=f"{row['city']} | Rating: {row['rating']}"
+# center marker only after click
+if st.session_state.center_set:
+    folium.Marker(
+        [st.session_state.center_lat, st.session_state.center_lon],
+        tooltip="Center",
+        icon=folium.Icon(color="blue")
     ).add_to(m)
 
+    # ONLY nearby markers
+    for _, row in nearby.iterrows():
+        folium.CircleMarker(
+            location=[row["lat"], row["lon"]],
+            radius=6,
+            color="red",
+            fill=True,
+            fill_opacity=0.7,
+
+            # ⭐ HOVER INFO
+            tooltip=folium.Tooltip(
+                f"""
+                <b>{row['city']}</b><br>
+                ❤️ Likes: {row['likes']}<br>
+                ⭐ Rating: {row['rating']}<br>
+                📍 Distance: {row['distance']:.1f} km
+                """
+            ),
+
+            popup=f"{row['review']}"
+        ).add_to(m)
+else:
+    st.info("Click anywhere on the map to load nearby posts")
+
+# -----------------------------
 # CLICK HANDLING
+# -----------------------------
 map_data = st_folium(m, height=500, width=700)
 
 if map_data and map_data.get("last_clicked"):
     st.session_state.center_lat = map_data["last_clicked"]["lat"]
     st.session_state.center_lon = map_data["last_clicked"]["lng"]
+    st.session_state.center_set = True
     st.rerun()
 
 # -----------------------------
-# Filtering
+# TABLE (only after click)
 # -----------------------------
-df["distance"] = df.apply(
-    lambda r: haversine(
-        st.session_state.center_lat,
-        st.session_state.center_lon,
-        r["lat"],
-        r["lon"]
-    ),
-    axis=1
-)
-
-nearby = df[df["distance"] <= radius_km]
-
-# -----------------------------
-# Results
-# -----------------------------
-st.subheader("🔥 Nearby Posts")
-st.dataframe(nearby[["city", "review", "rating", "distance"]])
+if st.session_state.center_set:
+    st.subheader("🔥 Nearby Posts")
+    st.dataframe(nearby[["city", "review", "rating", "distance"]])
