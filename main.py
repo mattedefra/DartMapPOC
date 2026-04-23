@@ -31,25 +31,33 @@ def generate_posts(n=30):
             "lon": lon,
             "review": f"Experience in {city} #{i}",
             "rating": np.random.randint(1, 6),
-            "likes": np.random.randint(0, 500)   # ⭐ NEW
+            "likes": np.random.randint(0, 500)
         })
     return pd.DataFrame(data)
 
-df = generate_posts()
+# -----------------------------
+# SESSION STATE (acts like DB)
+# -----------------------------
+if "df" not in st.session_state:
+    st.session_state.df = generate_posts()
 
-# -----------------------------
-# Session state
-# -----------------------------
+df = st.session_state.df
+
 if "center_lat" not in st.session_state:
     st.session_state.center_lat = 38.7223
     st.session_state.center_lon = -9.1393
     st.session_state.center_set = False
 
+# store clicked position for posting
+if "pending_lat" not in st.session_state:
+    st.session_state.pending_lat = None
+    st.session_state.pending_lon = None
+
 # -----------------------------
 # UI
 # -----------------------------
-st.title("📍 DartMap Prototype")
-st.text(f'Cities with data: {(', '.join(map(str, df['city'].unique())))}')
+st.title("📍 DartMap Prototype (with Posting)")
+
 radius_km = st.slider("Radius (km)", 1, 100, 20)
 
 st.write(f"📍 Center: {st.session_state.center_lat:.4f}, {st.session_state.center_lon:.4f}")
@@ -67,8 +75,22 @@ def haversine(lat1, lon1, lat2, lon2):
     return 2 * R * np.arcsin(np.sqrt(a))
 
 # -----------------------------
-# Compute nearby ONLY after click
+# MAP
 # -----------------------------
+m = folium.Map(
+    location=[st.session_state.center_lat, st.session_state.center_lon],
+    zoom_start=7
+)
+
+# show center
+if st.session_state.center_set:
+    folium.Marker(
+        [st.session_state.center_lat, st.session_state.center_lon],
+        tooltip="Center",
+        icon=folium.Icon(color="blue")
+    ).add_to(m)
+
+# compute nearby only if active
 nearby = pd.DataFrame()
 
 if st.session_state.center_set:
@@ -81,26 +103,9 @@ if st.session_state.center_set:
         ),
         axis=1
     )
-
     nearby = df[df["distance"] <= radius_km]
 
-# -----------------------------
-# MAP
-# -----------------------------
-m = folium.Map(
-    location=[st.session_state.center_lat, st.session_state.center_lon],
-    zoom_start=7
-)
-
-# center marker only after click
-if st.session_state.center_set:
-    folium.Marker(
-        [st.session_state.center_lat, st.session_state.center_lon],
-        tooltip="Center",
-        icon=folium.Icon(color="blue")
-    ).add_to(m)
-
-    # ONLY nearby markers
+    # draw ONLY nearby
     for _, row in nearby.iterrows():
         folium.CircleMarker(
             location=[row["lat"], row["lon"]],
@@ -108,21 +113,18 @@ if st.session_state.center_set:
             color="red",
             fill=True,
             fill_opacity=0.7,
-
-            # ⭐ HOVER INFO
             tooltip=folium.Tooltip(
                 f"""
                 <b>{row['city']}</b><br>
                 ❤️ Likes: {row['likes']}<br>
                 ⭐ Rating: {row['rating']}<br>
-                📍 Distance: {row['distance']:.1f} km
+                📍 {row['distance']:.1f} km
                 """
             ),
-
-            popup=f"{row['review']}"
+            popup=row["review"]
         ).add_to(m)
 else:
-    st.info("Click anywhere on the map to load nearby posts")
+    st.info("Click on the map to set a location and unlock posts")
 
 # -----------------------------
 # CLICK HANDLING
@@ -133,10 +135,45 @@ if map_data and map_data.get("last_clicked"):
     st.session_state.center_lat = map_data["last_clicked"]["lat"]
     st.session_state.center_lon = map_data["last_clicked"]["lng"]
     st.session_state.center_set = True
+
+    # store for posting
+    st.session_state.pending_lat = st.session_state.center_lat
+    st.session_state.pending_lon = st.session_state.center_lon
+
     st.rerun()
 
 # -----------------------------
-# TABLE (only after click)
+# POSTING UI (UNDER MAP)
+# -----------------------------
+st.subheader("✍️ Add Your Experience")
+
+if st.session_state.pending_lat is None:
+    st.warning("Click on the map first to choose a location")
+else:
+    review = st.text_area("Your experience")
+    rating = st.slider("Rating", 1, 5, 3)
+
+    if st.button("Publish"):
+        new_post = {
+            "post_id": len(st.session_state.df),
+            "city": "User Post",
+            "lat": st.session_state.pending_lat,
+            "lon": st.session_state.pending_lon,
+            "review": review,
+            "rating": rating,
+            "likes": 0
+        }
+
+        st.session_state.df = pd.concat(
+            [st.session_state.df, pd.DataFrame([new_post])],
+            ignore_index=True
+        )
+
+        st.success("Posted successfully! 🎉")
+        st.rerun()
+
+# -----------------------------
+# TABLE
 # -----------------------------
 if st.session_state.center_set:
     st.subheader("🔥 Nearby Posts")
