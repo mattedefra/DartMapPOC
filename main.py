@@ -56,7 +56,8 @@ if "pending_lat" not in st.session_state:
 # -----------------------------
 # UI
 # -----------------------------
-st.title("📍 DartMap Prototype (with Posting)")
+st.title("📍 App Prototype")
+st.text(f'Cities with data: {(', '.join(map(str, df['city'].unique())))}')
 
 radius_km = st.slider("Radius (km)", 1, 100, 20)
 
